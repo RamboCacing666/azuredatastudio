@@ -9,6 +9,7 @@ import * as constants from '../common/constants';
 import * as utils from '../common/utils';
 import * as xmlFormat from 'xml-formatter';
 import * as os from 'os';
+import * as publishProfile from './publishProfile/publishProfile';
 
 import { Uri } from 'vscode';
 import { promises as fs } from 'fs';
@@ -64,7 +65,7 @@ export class Project {
 		}
 
 		// find all SQLCMD variables to include
-		this.sqlCmdVariables = utils.readSqlCmdVariables(this.projFileXmlDoc);
+		this.sqlCmdVariables = publishProfile.readSqlCmdVariables(this.projFileXmlDoc);
 
 		// find all database references to include
 		for (let r = 0; r < this.projFileXmlDoc.documentElement.getElementsByTagName(constants.ArtifactReference).length; r++) {

@@ -12,6 +12,7 @@ import * as zip from 'adm-zip';
 import * as tar from 'tar';
 import { ApiWrapper } from '../common/apiWrapper';
 import * as utils from '../common/utils';
+import { RemoteBookDialogModel } from '../dialog/remoteBookDialog';
 
 const localize = nls.loadMessageBundle();
 const msgRemoteBookDownloadProgress = localize('msgRemoteBookDownloadProgress', "Remote Book download is in progress");
@@ -26,7 +27,8 @@ const msgBookNotFound = localize('msgBookNotFound', 'Books not Found');
 
 export class RemoteBookController {
 	private _book: RemoteBook;
-	constructor(public apiWrapper: ApiWrapper) {
+	private readonly assetNameRE = /([a-zA-Z0-9]+)(?:-|_)([a-zA-Z0-9.]+)(?:-|_)([a-zA-Z0-9]+).(zip|tar.gz)/g;
+	constructor(public apiWrapper: ApiWrapper, public model: RemoteBookDialogModel) {
 	}
 
 	public async setRemoteBook(url: URL, remoteLocation: string, asset?: IAssets): Promise<void> {
@@ -36,6 +38,105 @@ export class RemoteBookController {
 			this._book = new SharedRemoteBook(this.apiWrapper, url);
 		}
 		return await this._book.createLocalCopy();
+	}
+
+	public async fetchGithubReleases(url: URL): Promise<IReleases[]> {
+		let options = {
+			headers: {
+				'User-Agent': 'request'
+			}
+		};
+		return new Promise<IReleases[]>((resolve, reject) => {
+			request.get(url.href, options, (error, response, body) => {
+				if (error) {
+					return reject(error);
+				}
+
+				if (response.statusCode === 404) {
+					return reject(msgResourceNotFound);
+				}
+
+				if (response.statusCode !== 200) {
+					return reject(response.statusCode);
+				}
+				let releases = JSON.parse(body);
+				let bookReleases: IReleases[] = [];
+				if (releases) {
+					let keys = Object.keys(releases);
+					keys = keys.filter(key => {
+						let release = {} as IReleases;
+						try {
+							release.name = releases[key].name;
+							release.assets_url = new URL(releases[key].assets_url);
+						}
+						catch (error) {
+							return reject(error);
+						}
+						bookReleases.push(release);
+					});
+				}
+				if (bookReleases) {
+					this.model.releases = bookReleases;
+					resolve(bookReleases);
+				} else {
+					return reject('No releases are available');
+				}
+			});
+		});
+	}
+
+	public async fecthListAssets(release: IReleases): Promise<IAssets[]> {
+		let options = {
+			headers: {
+				'User-Agent': 'request'
+			}
+		};
+		return new Promise<IAssets[]>((resolve, reject) => {
+			request.get(release.assets_url.href, options, (error, response, body) => {
+				if (error) {
+					return reject(error);
+				}
+
+				if (response.statusCode === 404) {
+					return reject(msgResourceNotFound);
+				}
+
+				if (response.statusCode !== 200) {
+					return reject(response.statusCode);
+				}
+				let assets = JSON.parse(body);
+				let githubAssets: IAssets[] = [];
+				if (assets) {
+					let keys = Object.keys(assets);
+					keys = keys.filter(key => {
+						let asset = {} as IAssets;
+						asset.url = new URL(assets[key].url);
+						asset.name = assets[key].name;
+						asset.browser_download_url = new URL(assets[key].browser_download_url);
+						let groupsRe = asset.name.match(this.assetNameRE);
+						if (groupsRe !== null) {
+							asset.book = groupsRe[0];
+							asset.version = groupsRe[1];
+							asset.language = groupsRe[2];
+							githubAssets.push(asset);
+						}
+					});
+				}
+				if (githubAssets.length > 0) {
+					this.model.assets = githubAssets;
+					resolve(githubAssets);
+				}
+				return reject(msgBookNotFound);
+			});
+		});
+	}
+
+	public getReleases(): IReleases[] {
+		return this.model.releases;
+	}
+
+	public getAssets(): IAssets[] {
+		return this.model.assets;
 	}
 }
 
@@ -94,7 +195,6 @@ class SharedRemoteBook extends RemoteBook {
 }
 
 export class GitHubRemoteBook extends RemoteBook {
-	static readonly assetNameRE = /([a-zA-Z0-9]+)(?:-|_)([a-zA-Z0-9.]+)(?:-|_)([a-zA-Z0-9]+).(zip|tar.gz)/g;
 	readonly re = /\//g;
 
 	constructor(public apiWrapper: ApiWrapper, public remote_path: URL, protected _zipURL: URL, protected _tarURL: URL) {
@@ -176,90 +276,6 @@ export class GitHubRemoteBook extends RemoteBook {
 						reject(downloadError);
 						downloadRequest.abort();
 					});
-			});
-		});
-	}
-
-	public static async getReleases(url: URL): Promise<IReleases[]> {
-		let options = {
-			headers: {
-				'User-Agent': 'request'
-			}
-		};
-		return new Promise<IReleases[]>((resolve, reject) => {
-			request.get(url.href, options, (error, response, body) => {
-				if (error) {
-					return reject(error);
-				}
-
-				if (response.statusCode === 404) {
-					return reject(msgResourceNotFound);
-				}
-
-				if (response.statusCode !== 200) {
-					return reject(response.statusCode);
-				}
-				let releases = JSON.parse(body);
-				let bookReleases: IReleases[] = [];
-				if (releases) {
-					let keys = Object.keys(releases);
-					keys = keys.filter(key => {
-						let release = {} as IReleases;
-						try {
-							release.name = releases[key].name;
-							release.assets_url = new URL(releases[key].assets_url);
-						}
-						catch (error) {
-						}
-						bookReleases.push(release);
-					});
-				}
-				resolve(bookReleases);
-			});
-		});
-	}
-
-	public static async getListAssets(release: IReleases): Promise<IAssets[]> {
-		let options = {
-			headers: {
-				'User-Agent': 'request'
-			}
-		};
-		return new Promise<IAssets[]>((resolve, reject) => {
-			request.get(release.assets_url.href, options, (error, response, body) => {
-				if (error) {
-					return reject(error);
-				}
-
-				if (response.statusCode === 404) {
-					return reject(msgResourceNotFound);
-				}
-
-				if (response.statusCode !== 200) {
-					return reject(response.statusCode);
-				}
-				let assets = JSON.parse(body);
-				let githubAssets: IAssets[] = [];
-				if (assets) {
-					let keys = Object.keys(assets);
-					keys = keys.filter(key => {
-						let asset = {} as IAssets;
-						asset.url = new URL(assets[key].url);
-						asset.name = assets[key].name;
-						asset.browser_download_url = new URL(assets[key].browser_download_url);
-						let groupsRe = asset.name.match(this.assetNameRE);
-						if (groupsRe !== null) {
-							asset.book = groupsRe[0];
-							asset.version = groupsRe[1];
-							asset.language = groupsRe[2];
-							githubAssets.push(asset);
-						}
-					});
-				}
-				if (githubAssets.length > 0) {
-					resolve(githubAssets);
-				}
-				return reject(msgBookNotFound);
 			});
 		});
 	}

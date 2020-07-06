@@ -5,8 +5,8 @@
 
 import * as azdata from 'azdata';
 import * as loc from '../common/localizedConstants';
-import { RemoteBookController, IReleases, IAssets, GitHubRemoteBook } from '../book/remoteBookController';
-import { ApiWrapper } from '../common/apiWrapper';
+import { RemoteBookController, IReleases, IAssets } from '../book/remoteBookController';
+//import { ApiWrapper } from '../common/apiWrapper';
 import * as utils from '../common/utils';
 
 function getRemoteLocationCategory(name: string): azdata.CategoryValue {
@@ -23,8 +23,7 @@ export class RemoteBookDialogModel {
 	private _releases: IReleases[];
 	private _assets: IAssets[];
 
-	constructor(private apiWrapper: ApiWrapper) {
-		this._controller = new RemoteBookController(this.apiWrapper);
+	constructor() {
 	}
 
 	public get remoteLocationCategories(): azdata.CategoryValue[] {
@@ -34,22 +33,22 @@ export class RemoteBookDialogModel {
 		return this._remoteTypes;
 	}
 
-	public async getReleases(url: string): Promise<Boolean> {
-		let remotePath: URL;
-		url = loc.apiGitHub(url);
-		remotePath = new URL(url);
-		this._releases = await GitHubRemoteBook.getReleases(remotePath);
-		return this._releases !== undefined && this._releases.length > 0;
-	}
+	// public async getReleases(url: string): Promise<Boolean> {
+	// 	let remotePath: URL;
+	// 	url = loc.apiGitHub(url);
+	// 	remotePath = new URL(url);
+	// 	this._releases = await GitHubRemoteBook.getReleases(remotePath);
+	// 	return this._releases !== undefined && this._releases.length > 0;
+	// }
 
-	public async getListAssets(release: IReleases): Promise<IAssets[]> {
-		try {
-			return await GitHubRemoteBook.getListAssets(release);
-		}
-		catch (error) {
-			throw error;
-		}
-	}
+	// public async getListAssets(release: IReleases): Promise<IAssets[]> {
+	// 	try {
+	// 		return await GitHubRemoteBook.getListAssets(release);
+	// 	}
+	// 	catch (error) {
+	// 		throw error;
+	// 	}
+	// }
 
 	public async downloadLocalCopy(url: URL, asset?: IAssets): Promise<void> {
 		await this._controller.setRemoteBook(url, this._remoteLocation, asset);
@@ -96,7 +95,7 @@ export class RemoteBookDialog {
 	private readonly tigertoolboxrepo = 'repos/microsoft/tigertoolbox';
 	private readonly urlGithubRE = /^(?:https:\/\/(?:github.com|api.github.com\/repos)|(?:\/)?(?:\/)?repos)([\w-.?!=&%*+:@\/]*)/g;
 
-	constructor(public model: RemoteBookDialogModel) {
+	constructor(public controller: RemoteBookController) {
 	}
 
 	public async createDialog(): Promise<void> {
@@ -244,9 +243,9 @@ export class RemoteBookDialog {
 				//get the first group to extract /owner/repo/releases format
 				let groupsRe = url.match(this.urlGithubRE);
 				if (groupsRe !== null && groupsRe.length > 0) {
-					url = groupsRe[0];
-					let isValid = await this.model.getReleases(url);
-					if (isValid) {
+					url = loc.apiGitHub(groupsRe[0]);
+					let releases = await this.controller.fetchGithubReleases(new URL(url));
+					if (releases) {
 						this.releaseDropdown.enabled = true;
 						await this.fillReleasesDropdown();
 					}
@@ -268,7 +267,7 @@ export class RemoteBookDialog {
 			if (this.model.remoteLocation === loc.onGitHub) {
 				let selected_release = this.model.releases.filter(release =>
 					release.name === this.releaseDropdown.value);
-				let assets = await this.model.getListAssets(selected_release[0]);
+				let assets = await this.controller.fecthListAssets(selected_release[0]);
 				if (assets !== undefined && assets.length > 0) {
 					let bookValues: string[] = [];
 					assets.forEach(asset => {
@@ -313,7 +312,7 @@ export class RemoteBookDialog {
 
 	public async fillReleasesDropdown(): Promise<void> {
 		let versions: string[] = [];
-		this.model.releases.forEach(release => {
+		this.controller.getReleases().forEach(release => {
 			versions.push(release.name);
 		});
 		this.releaseDropdown.values = versions;
@@ -322,7 +321,7 @@ export class RemoteBookDialog {
 
 	public async fillVersionDropdown(): Promise<void> {
 		let versions: string[] = [];
-		this.model.assets.forEach(asset => {
+		this.controller.getAssets().forEach(asset => {
 			if (asset.book === this.bookDropdown.value) {
 				versions.push(asset.version);
 			}
@@ -332,7 +331,7 @@ export class RemoteBookDialog {
 
 	public async fillLanguageDropdown(): Promise<void> {
 		let languages: string[] = [];
-		this.model.assets.forEach(asset => {
+		this.controller.getAssets().forEach(asset => {
 			if (asset.book === this.bookDropdown.value && asset.version === this.versionDropdown.value) {
 				languages.push(asset.language);
 			}
@@ -345,7 +344,7 @@ export class RemoteBookDialog {
 		let book = this.bookDropdown.value;
 		let version = this.versionDropdown.value;
 		let assets: IAssets[] = [];
-		this.model.assets.forEach(asset => {
+		this.controller.getAssets().forEach(asset => {
 			if (asset.book === book && asset.version === version && asset.language === lang) {
 				if (asset.browser_download_url.href.endsWith('zip')) {
 					asset.zip_url = asset.browser_download_url;

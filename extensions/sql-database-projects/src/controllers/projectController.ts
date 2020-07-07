@@ -5,13 +5,13 @@
 
 import * as constants from '../common/constants';
 import * as dataSources from '../models/dataSources/dataSources';
+import * as publishProfile from '../models/publishProfile/publishProfile';
 import * as mssql from '../../../mssql';
 import * as os from 'os';
 import * as path from 'path';
 import * as utils from '../common/utils';
 import * as UUID from 'vscode-languageclient/lib/utils/uuid';
 import * as templates from '../templates/templates';
-import * as publishProfile from '../models/publishProfile/publishProfile';
 
 import { Uri, QuickPickItem, WorkspaceFolder, extensions, Extension } from 'vscode';
 import { IConnectionProfile, TaskExecutionMode } from 'azdata';
@@ -21,7 +21,7 @@ import { PublishDatabaseDialog } from '../dialogs/publishDatabaseDialog';
 import { Project, DatabaseReferenceLocation, SystemDatabase, TargetPlatform, ProjectEntry, reservedProjectFolders } from '../models/project';
 import { SqlDatabaseProjectTreeViewProvider } from './databaseProjectTreeViewProvider';
 import { FolderNode, FileNode } from '../models/tree/fileFolderTreeItem';
-import { IPublishSettings, IGenerateScriptSettings, PublishProfile } from '../models/IPublishSettings';
+import { IPublishSettings, IGenerateScriptSettings } from '../models/IPublishSettings';
 import { BaseProjectTreeItem } from '../models/tree/baseTreeItem';
 import { ProjectRootTreeItem } from '../models/tree/projectTreeItem';
 import { ImportDataModel } from '../models/api/import';
@@ -200,7 +200,7 @@ export class ProjectsController {
 
 		publishDatabaseDialog.publish = async (proj, prof) => await this.executionCallback(proj, prof);
 		publishDatabaseDialog.generateScript = async (proj, prof) => await this.executionCallback(proj, prof);
-		publishDatabaseDialog.readPublishProfile = async (profileUri) => await this.readPublishProfile(profileUri);
+		publishDatabaseDialog.readPublishProfile = async (profileUri) => publishProfile.load(profileUri, this.apiWrapper);
 
 		publishDatabaseDialog.openDialog();
 
@@ -226,27 +226,6 @@ export class ProjectsController {
 		else {
 			return await dacFxService.generateDeployScript(tempPath, settings.databaseName, settings.connectionUri, TaskExecutionMode.script, settings.sqlCmdVariables);
 		}
-	}
-
-	public async readPublishProfile(profileUri: Uri): Promise<PublishProfile> {
-		const profileText = await fs.readFile(profileUri.fsPath);
-		const profileXmlDoc = new xmldom.DOMParser().parseFromString(profileText.toString());
-
-		// read target database name
-		let targetDbName: string = '';
-		let targetDatabaseNameCount = profileXmlDoc.documentElement.getElementsByTagName(constants.targetDatabaseName).length;
-		if (targetDatabaseNameCount > 0) {
-			// if there is more than one TargetDatabaseName nodes, SSDT uses the name in the last one so we'll do the same here
-			targetDbName = profileXmlDoc.documentElement.getElementsByTagName(constants.targetDatabaseName)[targetDatabaseNameCount - 1].textContent;
-		}
-
-		// get all SQLCMD variables to include from the profile
-		let sqlCmdVariables = utils.readSqlCmdVariables(profileXmlDoc);
-
-		return {
-			databaseName: targetDbName,
-			sqlCmdVariables: sqlCmdVariables
-		};
 	}
 
 	public async schemaCompare(treeNode: BaseProjectTreeItem): Promise<void> {
